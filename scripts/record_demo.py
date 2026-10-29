@@ -1,4 +1,4 @@
-"""Record a ~40 s demo of the live site: home -> search suggestions -> card page -> deals -> home.
+"""Record a ~20 s demo of the live site: home -> search suggestions -> a card at all three stores -> deals.
 
   python scripts/record_demo.py [--url https://card-scout-silk.vercel.app] [--out demo]
 
@@ -61,58 +61,69 @@ def scroll(page: Page, dy: int, steps: int = 12) -> None:
         page.wait_for_timeout(40)
 
 
-def tour(page: Page, base: str) -> None:
-    page.goto(base, wait_until="networkidle")
+class Clock:
+    """Marks the stretches of the recording spent waiting (page loads, API answers) so encode() can cut them out:
+    the finished video shows every page appearing instantly, at normal speed otherwise."""
+
+    def __init__(self) -> None:
+        self.t0 = time.monotonic()
+        self.cuts: list[tuple[float, float]] = []
+
+    def now(self) -> float:
+        return time.monotonic() - self.t0
+
+    def wait(self, fn, keep: float = 0.15) -> None:
+        """Run fn (a wait), then mark all but its first `keep` seconds to be cut."""
+        a = self.now()
+        fn()
+        b = self.now()
+        if b - a > keep + 0.05:
+            self.cuts.append((a + keep, b))
+
+
+def tour(page: Page, base: str, clock: Clock | None = None) -> None:
+    clock = clock or Clock()
+    clock.wait(lambda: page.goto(base, wait_until="networkidle"), keep=0)
+    clock.wait(lambda: page.wait_for_timeout(400), keep=0)   # first paint settles
     page.mouse.move(W / 2, H / 2)
-    page.wait_for_timeout(2200)
-    scroll(page, 380)                      # deal of the day and stats
-    page.wait_for_timeout(1800)
-    scroll(page, -380)
-    page.wait_for_timeout(600)
+    page.wait_for_timeout(1200)
 
     box = page.get_by_role("combobox", name="Search cards").first
     glide(page, box)
-    box.press_sequentially("ash blossom", delay=110)
+    box.press_sequentially("ash blossom", delay=85)
     option = page.get_by_role("option").filter(has_text=CARD).first
-    option.wait_for(timeout=15000)
-    page.wait_for_timeout(1500)
-    glide(page, option)                    # open the card from the suggestions
+    clock.wait(lambda: option.wait_for(timeout=30000))
+    page.wait_for_timeout(900)
+    glide(page, option)                                       # Ash Blossom RA05-EN091: all three stores
 
-    page.wait_for_url("**/cards/**", timeout=30000)
-    page.get_by_role("table").wait_for(timeout=30000)
-    page.wait_for_timeout(2000)
-    scroll(page, 420)                      # price table
-    page.wait_for_timeout(1200)
-    glide(page, page.get_by_text("Cheapest").first, click=False)
-    page.wait_for_timeout(1800)
-    tabs = page.get_by_role("tab")
-    if tabs.count() > 1:
-        glide(page, tabs.nth(1))           # switch edition
-        page.wait_for_timeout(1600)
-    scroll(page, 520)                      # price history chart
-    page.wait_for_timeout(2200)
+    clock.wait(lambda: (page.wait_for_url("**/cards/**", timeout=30000),
+                        page.get_by_role("table").wait_for(timeout=30000),
+                        page.locator(".recharts-surface").first.wait_for(timeout=30000)))
+    page.wait_for_timeout(1000)                               # a beat on the card
+    scroll(page, 900, steps=24)                               # down to the price history chart
+    page.wait_for_timeout(1600)
+    scroll(page, -900, steps=18)
+    page.wait_for_timeout(300)
 
-    scroll(page, -1200)
-    page.wait_for_timeout(500)
     glide(page, page.get_by_role("link", name="Deals").first)
-    page.wait_for_url("**/deals**", timeout=30000)
-    page.locator("main ol li").first.wait_for(timeout=30000)
-    page.wait_for_timeout(2200)
-    scroll(page, 500)
-    page.wait_for_timeout(2000)
-
-    glide(page, page.get_by_role("link", name="Card Scout CA").first)
-    page.wait_for_url(base.rstrip("/") + "/", timeout=30000)
-    page.wait_for_timeout(2500)
+    clock.wait(lambda: (page.wait_for_url("**/deals**", timeout=30000),
+                        page.locator("main ol li").first.wait_for(timeout=30000)))
+    page.wait_for_timeout(1000)
+    scroll(page, 420, steps=14)
+    page.wait_for_timeout(1500)
 
 
-def encode(webm: Path, out: Path) -> None:
+def encode(webm: Path, out: Path, cuts: list[tuple[float, float]]) -> None:
     ff = imageio_ffmpeg.get_ffmpeg_exe()
+    # Playwright's webm has a variable frame rate: make it constant first, then drop the waiting stretches
+    cut = "+".join(f"between(t,{a:.2f},{b:.2f})" for a, b in cuts) or "0"
+    trim = f"fps=25,select='not({cut})',setpts=N/25/TB"
     mp4, gif = out / "card-scout-demo.mp4", out / "card-scout-demo.gif"
-    subprocess.run([ff, "-y", "-loglevel", "error", "-i", str(webm), "-c:v", "libx264", "-pix_fmt", "yuv420p",
+    subprocess.run([ff, "-y", "-loglevel", "error", "-i", str(webm), "-vf", trim,
+                    "-c:v", "libx264", "-pix_fmt", "yuv420p",
                     "-crf", "20", "-movflags", "+faststart", str(mp4)], check=True)
     subprocess.run([ff, "-y", "-loglevel", "error", "-i", str(webm), "-vf",
-                    "fps=12,scale=800:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=128[p];[b][p]paletteuse",
+                    f"{trim},fps=10,scale=720:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=96[p];[b][p]paletteuse",
                     str(gif)], check=True)
     for f in (mp4, gif):
         print(f"{f} ({f.stat().st_size / 1e6:.1f} MB)")
@@ -136,11 +147,12 @@ def main() -> None:
                                   record_video_dir=str(out / "raw"), record_video_size={"width": W, "height": H})
         ctx.add_init_script(CURSOR_JS)
         page = ctx.new_page()
-        tour(page, args.url)
+        clock = Clock()                                   # the video starts with the page
+        tour(page, args.url, clock)
         video = page.video.path()
         ctx.close()
         browser.close()
-    encode(Path(video), out)
+    encode(Path(video), out, clock.cuts)
 
 
 if __name__ == "__main__":
