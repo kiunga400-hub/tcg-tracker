@@ -100,9 +100,13 @@ def tour(page: Page, base: str, clock: Clock | None = None) -> None:
                         page.get_by_role("table").wait_for(timeout=30000),
                         page.locator(".recharts-surface").first.wait_for(timeout=30000)))
     page.wait_for_timeout(1000)                               # a beat on the card
-    scroll(page, 900, steps=24)                               # down to the price history chart
-    page.wait_for_timeout(1600)
-    scroll(page, -900, steps=18)
+    scroll(page, 380, steps=14)                               # the price table: every store, condition and price
+    page.wait_for_timeout(2200)
+    scroll(page, 520, steps=18)                               # price history chart
+    page.wait_for_timeout(1500)
+    scroll(page, 380, steps=14)                               # other printings of the card
+    page.wait_for_timeout(1500)
+    scroll(page, -1280, steps=20)
     page.wait_for_timeout(300)
 
     glide(page, page.get_by_role("link", name="Deals").first)
