@@ -4,6 +4,8 @@
 
 **Live: https://card-scout-silk.vercel.app**
 
+![Card Scout CA demo: search suggestions, a card's prices at three stores, and the deals page](docs/media/demo.gif)
+
 Canadian players compare prices by opening five store tabs and searching each one. Card Scout CA does that for
 them: it checks every in-stock Yu-Gi-Oh! single at Canadian stores twice a day, matches the same printing across
 stores, and shows who's cheapest for each edition and condition, with price history and a link to buy on the store's
