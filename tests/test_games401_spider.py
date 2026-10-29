@@ -166,3 +166,35 @@ def test_next_page():
     assert next_page(141, 58, 141, 300) == (None, "done")
     assert next_page(5, 0, 141, 300) == (None, "empty_page")
     assert next_page(300, 250, 400, 300) == (None, "too_many_pages")
+
+
+def crawl_pass(spider, req, served):
+    """Answer one pass of page requests; served(page) gives that page's items. Returns the next pass's request."""
+    total, pages, got = 1000, 4, []
+    while req is not None:
+        p = req.cb_kwargs["page"]
+        out = run(req, api_response(req, served(p), total, pages))
+        got += [o for o in out if isinstance(o, dict)]
+        req = next((o for o in out if isinstance(o, Request)), None)
+        if req is not None and req.cb_kwargs["page"] == 1:
+            return got, req
+    return got, None
+
+
+def test_a_short_crawl_pages_through_again_and_keeps_the_union(spider):
+    # first pass: an index swap made page 3 repeat page 2, so 250 cards were never served
+    first = {1: items(0, 250), 2: items(250, 250), 3: items(250, 250), 4: items(750, 250)}
+    got, again = crawl_pass(spider, list(spider._begin(CACHED, "cached"))[0], first.get)
+    assert len(got) == 750 and again is not None and spider.passes == 2
+    got2, more = crawl_pass(spider, again, lambda p: items((p - 1) * 250, 250))
+    assert len(got2) == 250 and more is None   # only the cards the first pass missed are yielded again
+    assert spider.verdict("finished") is None
+    assert spider.crawler.stats.get_value("401games/found_by_extra_pass") == 250
+
+
+def test_still_short_after_the_extra_pass_fails(spider):
+    short = {1: items(0, 250), 2: items(250, 250), 3: items(250, 250), 4: items(750, 250)}
+    _, again = crawl_pass(spider, list(spider._begin(CACHED, "cached"))[0], short.get)
+    _, more = crawl_pass(spider, again, short.get)
+    assert more is None and spider.passes == 2   # GAMES401_MAX_PASSES: no third pass
+    assert "differs from data.total" in spider.verdict("finished")

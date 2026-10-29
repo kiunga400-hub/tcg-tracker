@@ -68,6 +68,7 @@ GAMES401_CONFIG_MAX_AGE_DAYS = 7
 GAMES401_MAX_PAGES = 300
 GAMES401_PAGE_ATTEMPTS = 3        # re-ask a page whose total disagrees with page 1 (inconsistent index copies)
 GAMES401_COUNT_TOLERANCE = 0.02     # index drift skips ~0.7% per crawl; misses_to_confirm = 2 guards stock
+GAMES401_MAX_PASSES = 2            # a crawl that ends short pages through once more (union of both passes)
 
 # Fusion Gaming (Shopify products.json; no API key)
 FUSION_MAX_PAGES = 100            # 56 pages of 250 on 2026-10-26

@@ -20,6 +20,10 @@ from tcg_tracker.spiders.trinity import count_problem
 STORE = {"slug": "fusion", "name": "Fusion Gaming", "base_url": "https://fusiongamingonline.com"}
 COLLECTION = "https://fusiongamingonline.com/collections/yugioh-singles"
 PAGE_SIZE = 250
+# Shopify Markets prices by the visitor's country. The cloud crawl runs in the US, where Hobbiesville served converted,
+# rounded US-market prices (2026-10-27: 12,341 prices changed at once, e.g. a $0.25 common read as $1.00). Ask for the
+# Canadian storefront the way its country selector does. Cookies are otherwise off, so this header goes out as written.
+MARKET_HEADERS = {"Cookie": "localization=CA; cart_currency=CAD"}
 
 
 class FusionSpider(scrapy.Spider):
@@ -50,7 +54,8 @@ class FusionSpider(scrapy.Spider):
     async def start(self):
         if not self._settings.get("CONTACT_EMAIL"):
             raise CloseSpider("TCG_CONTACT_EMAIL is not set; the User-Agent must carry a contact address")
-        yield scrapy.Request(f"{self.collection}.json", callback=self.parse_collection, errback=self.request_failed)
+        yield scrapy.Request(f"{self.collection}.json", callback=self.parse_collection, errback=self.request_failed,
+                             headers=MARKET_HEADERS)
 
     def parse_collection(self, response):
         try:
@@ -61,7 +66,8 @@ class FusionSpider(scrapy.Spider):
 
     def page_request(self, page: int) -> scrapy.Request:
         return scrapy.Request(f"{self.collection}/products.json?limit={PAGE_SIZE}&page={page}",
-                              callback=self.parse_page, errback=self.request_failed, cb_kwargs={"page": page})
+                              callback=self.parse_page, errback=self.request_failed, cb_kwargs={"page": page},
+                              headers=MARKET_HEADERS)
 
     def parse_page(self, response, page: int):
         try:

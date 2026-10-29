@@ -42,3 +42,9 @@ def test_uses_its_own_page_cap():
 def test_paced_but_faster_than_fusion():
     c = HobbiesvilleSpider.custom_settings
     assert c["DOWNLOAD_DELAY"] == 5.0 and c["RETRY_TIMES"] >= 15 and c["CLOSESPIDER_TIMEOUT"] <= 6000
+
+
+def test_requests_ask_for_the_canadian_market():
+    # from a US server Shopify otherwise answers with US-market prices (2026-10-27)
+    s = spider()
+    assert s.page_request(1).headers.get("Cookie") == b"localization=CA; cart_currency=CAD"

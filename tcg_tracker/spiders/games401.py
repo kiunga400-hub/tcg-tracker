@@ -67,6 +67,7 @@ class Games401Spider(scrapy.Spider):
         self.seen_ids: set[str] = set()
         self.total: int | None = None
         self.pages = 0
+        self.passes = 1
         self.failure: str | None = None
         self.cache = None
         self.stale: dict | None = None
@@ -175,10 +176,14 @@ class Games401Spider(scrapy.Spider):
 
         for raw in items:
             if raw.get("id") in self.seen_ids:
-                # price ties can shift across page boundaries; the count check below catches real gaps
-                self.crawler.stats.inc_value("401games/duplicate_ids")
+                # first pass: shifting index copies move cards across page boundaries; the count check catches gaps.
+                # later passes: almost everything is already seen, which is the point
+                if self.passes == 1:
+                    self.crawler.stats.inc_value("401games/duplicate_ids")
                 continue
             self.seen_ids.add(raw.get("id"))
+            if self.passes > 1:
+                self.crawler.stats.inc_value("401games/found_by_extra_pass")
             yield {"raw": raw}
 
         nxt, why = next_page(page, len(items), total_pages, self._settings.getint("GAMES401_MAX_PAGES"))
@@ -186,6 +191,13 @@ class Games401Spider(scrapy.Spider):
             yield self.page_request(nxt)
         elif why != "done":
             self._fail(f"paging stopped early ({why}) at page {page}, {len(self.seen_ids)}/{total} items")
+        elif self._short() and self.passes < self._settings.getint("GAMES401_MAX_PASSES", 2):
+            # Fast Simon swapped index copies mid-crawl and pages skipped cards (2026-10-28/29: 2.1% and 6.1% short).
+            # Page through once more and keep the union: a card skipped on one pass is almost always on the other.
+            self.passes += 1
+            self.crawler.stats.set_value("401games/passes", self.passes)
+            self.logger.warning("pass %d ended short (%s); paging through again", self.passes - 1, self._short())
+            yield self.page_request(1)
 
     def page_failed(self, failure):
         self._fail(f"page request failed after retries: {failure.request.url} {failure.value!r}")
@@ -195,10 +207,14 @@ class Games401Spider(scrapy.Spider):
         self.logger.error("Run failed: %s", reason)
         raise CloseSpider("failed")
 
+    def _short(self) -> str | None:
+        """Why the cards seen so far don't add up to the API's total, or None if they do."""
+        return count_problem(len(self.seen_ids), self.total, self._settings.getfloat("GAMES401_COUNT_TOLERANCE"))
+
     def verdict(self, close_reason: str) -> str | None:
         """None if the crawl is complete and trustworthy, else the reason it isn't."""
         if self.failure:
             return self.failure
         if close_reason != "finished":
             return f"spider closed early: {close_reason}"
-        return count_problem(len(self.seen_ids), self.total, self._settings.getfloat("GAMES401_COUNT_TOLERANCE"))
+        return self._short()
