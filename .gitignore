@@ -34,3 +34,6 @@ tests/*.json
 CLAUDE.md
 CLAUDE.local.md
 .claude/
+
+# demo recordings (scripts/record_demo.py)
+demo/
