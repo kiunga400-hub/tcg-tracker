@@ -86,7 +86,11 @@ def tour(page: Page, base: str, clock: Clock | None = None) -> None:
     clock.wait(lambda: page.goto(base, wait_until="networkidle"), keep=0)
     clock.wait(lambda: page.wait_for_timeout(400), keep=0)   # first paint settles
     page.mouse.move(W / 2, H / 2)
-    page.wait_for_timeout(1200)
+    page.wait_for_timeout(1000)
+    scroll(page, 170, steps=12)                               # deal of the day, stats, browse by set
+    page.wait_for_timeout(1800)
+    scroll(page, -170, steps=10)
+    page.wait_for_timeout(300)
 
     box = page.get_by_role("combobox", name="Search cards").first
     glide(page, box)
