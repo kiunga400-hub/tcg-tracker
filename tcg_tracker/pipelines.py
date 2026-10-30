@@ -1,6 +1,7 @@
 """Parse raw items and store them in Postgres in batched transactions, with run bookkeeping."""
 from __future__ import annotations
 
+import contextlib
 import logging
 import time
 
@@ -40,13 +41,32 @@ class PostgresPipeline:
     def open_spider(self, spider=None):
         if not self.database_url:
             raise RuntimeError("DATABASE_URL is not set")
-        self.conn = psycopg.connect(self.database_url, autocommit=True)
+        self.conn = self._connect()
         s = self.crawler.spider.store
         # each spider brings its store's adapter: raw item -> parser.CardRec (shared card identity)
         self.adapter = self.crawler.spider.adapter
         self.store_id = db.ensure_store(self.conn, s["slug"], s["name"], s["base_url"])
         self.run_id = db.start_run(self.conn, self.store_id)
         logger.info("scrape run %s started for store %s", self.run_id, s["slug"])
+
+    def _connect(self):
+        # keepalives hold the connection open through quiet stretches (a second 401 pass saves almost nothing)
+        return psycopg.connect(self.database_url, autocommit=True, keepalives=1, keepalives_idle=60,
+                               keepalives_interval=15, keepalives_count=4)
+
+    def _live_conn(self):
+        """The connection, reconnected if the server dropped it while the crawl was quiet. Neon's free plan closes
+        idle connections: 401 run 38 (2026-10-30) saved nothing for 35 minutes during its second pass and could not
+        close its run, which stayed 'running'."""
+        try:
+            self.conn.execute("SELECT 1")
+        except psycopg.OperationalError:
+            logger.warning("database connection was dropped; reconnecting")
+            self.stats.inc_value("tcg/db_reconnects")
+            with contextlib.suppress(psycopg.Error):
+                self.conn.close()
+            self.conn = self._connect()
+        return self.conn
 
     def process_item(self, item, spider=None):
         if self.db_error:
@@ -73,8 +93,9 @@ class PostgresPipeline:
             return
         for attempt in range(1, DEADLOCK_RETRIES + 1):
             try:
-                with self.conn.transaction():
-                    db.save_items(self.conn, self.store_id, self.run_id, self.buffer)
+                conn = self._live_conn()
+                with conn.transaction():
+                    db.save_items(conn, self.store_id, self.run_id, self.buffer)
                 break
             except psycopg.errors.DeadlockDetected as e:
                 # another store's crawl held the same cards; the batch rolled back whole, so it is safe to redo
@@ -103,8 +124,9 @@ class PostgresPipeline:
         error = self.db_error or spider.verdict(reason)
         field_stats = self.field_stats.as_dict()
         try:
-            with self.conn.transaction():
-                status, notes = db.finish_run(self.conn, self.store_id, self.run_id, self.saved,
+            conn = self._live_conn()
+            with conn.transaction():
+                status, notes = db.finish_run(conn, self.store_id, self.run_id, self.saved,
                                               self.with_problems, error=error, field_stats=field_stats,
                                               misses_to_confirm=getattr(spider, "misses_to_confirm", 1))
         finally:

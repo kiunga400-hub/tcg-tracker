@@ -12,6 +12,11 @@ from tcg_tracker.spiders.trinity import TrinitySpider
 class FakeConn:
     def __init__(self):
         self.closed = False
+        self.dropped = False
+
+    def execute(self, sql):
+        if self.dropped:
+            raise pl.psycopg.OperationalError("server closed the connection unexpectedly")
 
     def transaction(self):
         return nullcontext()
@@ -122,3 +127,15 @@ def test_a_deadlocked_batch_is_retried(calls, monkeypatch):
     for i in (1, 2):
         pipe.process_item({"raw": raw(i)})
     assert len(attempts) == 2 and calls.saved == [1, 2] and pipe.db_error is None
+
+
+def test_a_dropped_connection_is_reopened_before_closing_the_run(calls, monkeypatch):
+    # Neon closes idle connections; a quiet second 401 pass left run 38 stuck in 'running' (2026-10-30)
+    opened = []
+    monkeypatch.setattr(pl.psycopg, "connect", lambda *a, **k: opened.append(FakeConn()) or opened[-1])
+    p, spider = make_pipeline(batch=2)
+    p.open_spider()
+    opened[0].dropped = True
+    spider.total, spider.seen_ids = 0, set()
+    p.spider_closed(spider, "finished")
+    assert len(opened) == 2 and calls.finished is not None and opened[1].closed
