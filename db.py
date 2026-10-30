@@ -101,7 +101,10 @@ def save_items(conn, store_id, run_id, pairs):
                 """INSERT INTO cards (card_key,set_code,card_number,name,set_name,rarity,art_label)
                    VALUES (%s,%s,%s,%s,%s,%s,%s)
                    ON CONFLICT (card_key) DO UPDATE SET set_name = EXCLUDED.set_name
-                   WHERE cards.set_name IS NULL AND EXCLUDED.set_name IS NOT NULL""", list(cards.values()))
+                   WHERE cards.set_name IS NULL AND EXCLUDED.set_name IS NOT NULL""",
+                # in card_key order: stores crawl at the same time and share cards, and locking the same rows in
+                # different orders deadlocked two crawls (2026-10-29, Hobbiesville run 32)
+                [cards[k] for k in sorted(cards)])
         with cur.copy("COPY stage_listings (source_product_id, card_key, url_name, title_raw, problems, raw,"
                       " image_url) FROM STDIN") as cp:
             for rec, raw in latest.values():

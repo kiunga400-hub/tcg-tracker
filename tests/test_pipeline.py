@@ -102,3 +102,23 @@ def test_missing_database_url_fails_loudly():
     crawler = get_crawler(TrinitySpider, {"DATABASE_URL": ""})
     with pytest.raises(RuntimeError, match="DATABASE_URL"):
         pl.PostgresPipeline.from_crawler(crawler).open_spider()
+
+
+def test_a_deadlocked_batch_is_retried(calls, monkeypatch):
+    # stores crawl in parallel and share cards; a deadlock rolls the batch back whole, so it can be redone
+    attempts = []
+    real = pl.db.save_items
+
+    def flaky(conn, store_id, run_id, pairs):
+        attempts.append(1)
+        if len(attempts) == 1:
+            raise pl.psycopg.errors.DeadlockDetected("deadlock detected")
+        real(conn, store_id, run_id, pairs)
+
+    monkeypatch.setattr(pl.db, "save_items", flaky)
+    monkeypatch.setattr(pl.time, "sleep", lambda s: None)
+    pipe, _ = make_pipeline(batch=2)
+    pipe.open_spider()
+    for i in (1, 2):
+        pipe.process_item({"raw": raw(i)})
+    assert len(attempts) == 2 and calls.saved == [1, 2] and pipe.db_error is None

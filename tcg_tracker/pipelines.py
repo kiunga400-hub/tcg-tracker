@@ -2,12 +2,16 @@
 from __future__ import annotations
 
 import logging
+import time
 
 import psycopg
 from scrapy import signals
 
 import db
 from tcg_tracker.monitoring import FieldStats, run_finished
+
+# The stores crawl in parallel into one database; a batch that deadlocks with another store's is rolled back and redone.
+DEADLOCK_RETRIES = 3
 
 logger = logging.getLogger(__name__)
 
@@ -67,17 +71,28 @@ class PostgresPipeline:
     def _flush(self):
         if not self.buffer or self.db_error:
             return
-        try:
-            with self.conn.transaction():
-                db.save_items(self.conn, self.store_id, self.run_id, self.buffer)
-        except psycopg.Error as e:
-            self.db_error = f"database error while saving a batch: {e!r}"
-            logger.error(self.db_error)
-            self.crawler.engine.close_spider(self.crawler.spider, "db_error")
-            return
+        for attempt in range(1, DEADLOCK_RETRIES + 1):
+            try:
+                with self.conn.transaction():
+                    db.save_items(self.conn, self.store_id, self.run_id, self.buffer)
+                break
+            except psycopg.errors.DeadlockDetected as e:
+                # another store's crawl held the same cards; the batch rolled back whole, so it is safe to redo
+                if attempt == DEADLOCK_RETRIES:
+                    return self._db_failed(e)
+                self.stats.inc_value("tcg/deadlock_retries")
+                logger.warning("deadlock saving a batch (attempt %d), retrying", attempt)
+                time.sleep(attempt)
+            except psycopg.Error as e:
+                return self._db_failed(e)
         self.saved += len(self.buffer)
         self.stats.set_value("tcg/items_saved", self.saved)
         self.buffer.clear()
+
+    def _db_failed(self, e: psycopg.Error):
+        self.db_error = f"database error while saving a batch: {e!r}"
+        logger.error(self.db_error)
+        self.crawler.engine.close_spider(self.crawler.spider, "db_error")
 
     def close_spider(self, spider=None):
         self._flush()
