@@ -1,2 +1,4 @@
 # Real-crawl fixture: stored gzipped (23 MB -> 2.3 MB), never diffed or line-ending converted
 *.json.gz binary
+# Scanner models: never diffed or line-ending converted
+*.onnx binary
