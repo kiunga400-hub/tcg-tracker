@@ -1,3 +1,4 @@
+import { Camera } from "lucide-react";
 import Link from "next/link";
 import { Suspense } from "react";
 
@@ -22,6 +23,12 @@ export default function Home() {
           <div className="max-w-xl">
             <SearchBox variant="hero" />
           </div>
+          <Link
+            href="/scan"
+            className="inline-flex h-9 w-fit items-center gap-2 rounded-full border border-white/25 bg-white/10 px-4 text-sm font-medium hover:bg-white/20"
+          >
+            <Camera className="size-4" /> Scan a card with your phone
+          </Link>
         </div>
       </section>
 

@@ -2,7 +2,8 @@ import Link from "next/link";
 import { ChevronRight } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
-import { cad, imageSrc, type Printing } from "@/lib/api";
+import type { Printing } from "@/lib/api";
+import { cad, imageSrc } from "@/lib/format";
 
 export function CardTile({ p }: { p: Printing }) {
   const href = `/cards/${encodeURIComponent(p.card_key)}`;

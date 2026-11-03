@@ -4,6 +4,7 @@ import { Suspense } from "react";
 import { HeaderSearch } from "@/components/header-search";
 
 const LINKS = [
+  { href: "/scan", label: "Scan" },
   { href: "/deals", label: "Deals" },
   { href: "/sets", label: "Sets" },
   { href: "/stores", label: "Stores" },

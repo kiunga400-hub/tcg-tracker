@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // the card scanner, copied as built from its own repo (see src/components/scanner.tsx)
+    "public/scanner/**",
   ]),
 ]);
 
