@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useEffect, useState, type ReactNode } from "react";
 
 import { CardTile } from "@/components/card-tile";
+import { ScanDetails } from "@/components/scan-details";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -24,7 +25,10 @@ export type ScanResult = {
   card: ScannedCard | null;
   alternatives?: ScannedCard[];
   reasons?: string[];
-  images?: { card?: HTMLCanvasElement };
+  fields?: Partial<Record<"name" | "set_code", { box: [number, number, number, number]; conf: number }>>;
+  images?: { card?: HTMLCanvasElement; crops?: Partial<Record<"name" | "set_code", HTMLCanvasElement>> };
+  ocr?: { nameTexts: string[]; codeTexts: string[] };
+  timings?: Record<string, number>;
 };
 
 // Every printing we track for the scanned code (all rarities, in stock or not), through the API's search; a card
@@ -97,6 +101,7 @@ export function ScanResultView({
           </p>
         </div>
         {actions}
+        <ScanDetails result={result} />
         <p className="text-sm text-muted-foreground">
           Or <Link href="/search" className="underline underline-offset-4">search by name or card number</Link>.
         </p>
@@ -191,6 +196,7 @@ export function ScanResultView({
       </div>
 
       {actions}
+      <ScanDetails result={result} />
     </section>
   );
 }
