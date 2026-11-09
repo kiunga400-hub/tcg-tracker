@@ -1,6 +1,7 @@
 """401 Games (store.401games.ca, Toronto) Yu-Gi-Oh singles via the Fast Simon search API.
 
-Flow: Fast Simon config -> categories_navigation pages of 250 (in-stock singles, price high->low) until total_p.
+Flow: Fast Simon config -> categories_navigation pages of 250 (in-stock singles, price high->low) until total_p;
+a crawl that ends short pages through once more, price low->high, and keeps the union.
 Same contract as the Trinity spider: completeness checks, and a verdict the pipeline turns into the run status.
 
 Fast Simon config {"uuid", "store_id", "category_id"}, in order of preference:
@@ -137,10 +138,13 @@ class Games401Spider(scrapy.Spider):
 
     # --- paging -----------------------------------------------------------------------------------------------
     def page_request(self, page: int, attempt: int = 1) -> scrapy.Request:
-        # in-stock singles only; price high->low gives a stable order for paging
+        # in-stock singles only, sorted by price for a stable paging order. Each pass reverses the order: a card that
+        # an index swap pushed across a page boundary on one pass sits at a different boundary on the next, so the
+        # union catches what either pass skipped (2026-11-07: a second pass in the same order still ended 3% short).
+        sort = "price_max_to_min" if self.passes % 2 else "price_min_to_max"
         params = {"UUID": self.cfg["uuid"], "store_id": self.cfg["store_id"], "category_id": self.cfg["category_id"],
                   "api_type": "json", "facets_required": 0, "with_product_attributes": "true",
-                  "products_per_page": PAGE_SIZE, "page_num": page, "sort_by": "price_max_to_min",
+                  "products_per_page": PAGE_SIZE, "page_num": page, "sort_by": sort,
                   "narrow": json.dumps([["Isp-in-stock", "True"]])}
         return scrapy.Request(f"{API_URL}?{urlencode(params)}", callback=self.parse_page, errback=self.page_failed,
                               cb_kwargs={"page": page, "attempt": attempt}, dont_filter=True)

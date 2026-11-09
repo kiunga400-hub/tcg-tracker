@@ -186,6 +186,8 @@ def test_a_short_crawl_pages_through_again_and_keeps_the_union(spider):
     first = {1: items(0, 250), 2: items(250, 250), 3: items(250, 250), 4: items(750, 250)}
     got, again = crawl_pass(spider, list(spider._begin(CACHED, "cached"))[0], first.get)
     assert len(got) == 750 and again is not None and spider.passes == 2
+    # the extra pass runs in the opposite price order, so its page boundaries fall elsewhere
+    assert parse_qs(urlparse(again.url).query)["sort_by"] == ["price_min_to_max"]
     got2, more = crawl_pass(spider, again, lambda p: items((p - 1) * 250, 250))
     assert len(got2) == 250 and more is None   # only the cards the first pass missed are yielded again
     assert spider.verdict("finished") is None
